@@ -1,0 +1,112 @@
+@startuml C4_Container_Future_2_0
+' Целевая архитектура «Будущее 2.0» — горизонт 1 год
+' Рендер: https://www.plantuml.com/plantuml или расширение PlantUML в IDE
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+title Диаграмма контейнеров C4 — целевая архитектура «Будущее 2.0» (через год)
+
+' ===================== Акторы =====================
+Person(user, "Бизнес-пользователь домена", "Строит и конструирует отчёты в пределах своего доступа")
+Person(oper, "Оператор клиники", "Работает с медицинскими данными")
+Person(owner, "Владелец домена / Data-инженер", "Публикует и сопровождает data products")
+Person(partner, "Внешний партнёр (план)", "Фарма / производитель электроники")
+
+' ===================== Облачная платформа =====================
+System_Boundary(cloud, "Облачная платформа «Будущее 2.0»") {
+
+    Container_Boundary(access, "Контур самообслуживания и доступа") {
+        Container(portal, "Портал самообслуживания", "SPA, веб", "Каталог отчётов и конструктор")
+        Container(gw, "API Gateway", "Gateway", "Маршрутизация, троттлинг, единая точка входа")
+        Container(bi, "BI / Query-сервис", "Cloud BI", "Интерактивные отчёты по gold-слою")
+    }
+
+    Container_Boundary(lake, "Платформа данных — Data Lakehouse") {
+        ContainerDb(store, "Объектное хранилище", "Data Lake (S3-совместимое)", "Слои bronze / silver / gold")
+        Container(compute, "Compute / Query Engine", "Spark + Trino/ClickHouse", "Трансформации и аналитические запросы")
+        Container(orch, "Оркестратор пайплайнов", "Airflow", "Расписание и зависимости ETL/ELT")
+        Container(catalog, "Data Catalog + Governance", "DataHub/OpenMetadata", "Метаданные, lineage, контракты данных")
+        Container(policy, "Сервис политик доступа", "Policy Engine", "Row/column-level security, маскирование")
+    }
+
+    Container_Boundary(domains, "Доменные data products (Data Mesh)") {
+        Container(dclinic, "Домен «Клиника»", "Сервисы", "Операционные данные (без медкарт для аналитики)")
+        Container(dfin, "Домен «Финтех»", "Go / Java", "Финтех-сервисы + data product")
+        Container(dai, "Домен «ИИ-сервисы»", "Python", "Изолированный мед-контур")
+        Container(dhq, "Домен «Головной офис»", "Сервисы", "Сводные KPI и фин. отчётность")
+        Container(dnew, "Будущие домены", "Фарма / Электроника", "Подключение по модели Data Mesh")
+    }
+
+    Container_Boundary(integ, "Интеграционный слой") {
+        ContainerQueue(kafka, "Событийная шина", "Apache Kafka", "Event backbone между доменами")
+        Container(cdc, "CDC-коннекторы", "Debezium", "Захват изменений из источников в bronze")
+    }
+
+    Container_Boundary(cross, "Сквозные сервисы") {
+        Container(iam, "IAM / SSO", "Keycloak", "RBAC / ABAC, единая аутентификация")
+        Container(sec, "Безопасность и комплаенс", "Encryption / Audit / DLP", "Шифрование, аудит, контроль утечек")
+        Container(backup, "Резервное копирование", "Backup / Geo-replication", "Гео-репликация критичных систем")
+    }
+}
+
+' ===================== Легаси-контур =====================
+System_Boundary(legacy, "Легаси-контур (временно, не более 1 года)") {
+    ContainerDb(dwh, "DWH", "SQL Server 2008", "Strangler: данные мигрируют, логика отключается")
+    Container(opui, "Интерфейс оператора", "PowerBuilder", "Легаси-клиент")
+    ContainerQueue(esb, "ESB", "Apache Camel", "Остаточная интеграция на переход")
+}
+
+' ===================== Защищённое мед-хранилище =====================
+ContainerDb(medvault, "Защищённое мед-хранилище", "Изолированный контур", "Медкарты, истории, снимки — НЕ попадают в витрину аналитики")
+
+' ===================== Связи: пользователи =====================
+Rel(user, portal, "Строит отчёты", "HTTPS")
+Rel(oper, opui, "Ввод медданных")
+Rel(owner, catalog, "Публикует data products")
+Rel(partner, gw, "Интеграция (план)", "HTTPS/API")
+Rel(portal, gw, "Запросы", "HTTPS")
+Rel(gw, bi, "Маршрутизирует")
+
+' ===================== Связи: доступ к данным =====================
+Rel(bi, compute, "Запросы к gold")
+Rel(bi, policy, "Проверка прав")
+Rel(policy, iam, "Решения по доступу")
+Rel(portal, catalog, "Поиск данных")
+
+' ===================== Связи: Lakehouse =====================
+BiRel(compute, store, "Чтение/запись")
+Rel(orch, compute, "Запускает пайплайны")
+Rel(catalog, store, "Метаданные")
+Rel(catalog, domains, "Контракты данных")
+
+' ===================== Связи: домены публикуют data products =====================
+Rel(dclinic, store, "data product → silver/gold")
+Rel(dfin, store, "data product → silver/gold")
+Rel(dai, store, "data product → silver/gold")
+Rel(dhq, store, "Сводные витрины")
+Rel(dnew, store, "Подключение по Data Mesh")
+
+' ===================== Связи: интеграция =====================
+Rel(cdc, store, "Сырые данные → bronze")
+Rel(kafka, cdc, "События")
+BiRel(dfin, kafka, "Публикация/подписка")
+BiRel(dai, kafka, "Публикация/подписка")
+BiRel(dclinic, kafka, "Публикация/подписка")
+
+' ===================== Связи: легаси / strangler =====================
+Rel(dwh, cdc, "CDC-миграция данных")
+BiRel(esb, kafka, "Мост legacy ↔ event backbone")
+Rel(opui, dwh, "Запись/чтение")
+BiRel(dwh, esb, "Остаточная интеграция")
+
+' ===================== Связи: медданные изолированы =====================
+Rel(oper, medvault, "Медданные, снимки")
+Rel(dai, medvault, "Доступ изолированно, под аудитом")
+Rel(medvault, sec, "Аудит и шифрование")
+
+' ===================== Сквозные =====================
+Rel(iam, portal, "Аутентификация")
+Rel(backup, store, "Резервирование")
+Rel(backup, medvault, "Резервирование")
+
+@enduml
